@@ -1,0 +1,4 @@
+/node_modules
+*/*.pdf
+*/*.html
+package-lock.json
