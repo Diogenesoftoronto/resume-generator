@@ -50,7 +50,6 @@
     "jsonresume-theme-verbum": "0.0.5",
     "jsonresume-theme-wraypro": "0.0.5",
     "lodash": "^4.17.21",
-    "resume": "link:",
     "resume-cli": "^3.0.8"
   },
   "name": "resume",
