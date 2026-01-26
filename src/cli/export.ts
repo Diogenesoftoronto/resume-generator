@@ -10,6 +10,16 @@ import {
   isThemeInstalled,
   moveFiles,
   getConfig,
+  CURATED_THEMES,
+  SKIP_THEMES,
+  validateResume,
+  getResumeHash,
+  getCachedHash,
+  saveCache,
+  logError,
+  logSuccess,
+  log,
+  logSection,
 } from "./types";
 import {
   workerData,
@@ -100,6 +110,173 @@ if (!isMainThread && workerData) {
 
     parentPort?.postMessage({ type: "result", theme, results });
   })();
+}
+
+// =============================================================================
+// TYPST EXPORT
+// =============================================================================
+
+/**
+ * Generate Typst PDF from resume data using typst CLI or typst.ts
+ */
+export async function exportTypstResume(
+  name: string,
+  resumeFile: string,
+  outputDir: string,
+): Promise<boolean> {
+  const templatePath = path.join(paths.projectRoot, "src/templates/resume.typ");
+  const outputPath = path.join(
+    paths.projectRoot,
+    outputDir,
+    `${name}-typst.pdf`,
+  );
+
+  // Check if template exists
+  if (!fs.existsSync(templatePath)) {
+    console.log(
+      `${colors.fgYellow}${icons.warning}${colors.reset} Typst template not found at ${templatePath}`,
+    );
+    return false;
+  }
+
+  // Read resume data
+  if (!fs.existsSync(resumeFile)) {
+    logError(`Resume file not found: ${resumeFile}`);
+    return false;
+  }
+
+  const resumeData = fs.readFileSync(resumeFile, "utf-8");
+
+  // Try typst CLI first, then typst.ts
+  const typstPath = path.join(paths.projectRoot, "node_modules/.bin/typst");
+
+  try {
+    // Method 1: Use typst CLI with stdin
+    if (fs.existsSync(typstPath)) {
+      // Write resume data to temp file for typst to read
+      const tempJsonPath = path.join(
+        paths.projectRoot,
+        "temp-resume-data.json",
+      );
+      fs.writeFileSync(tempJsonPath, resumeData);
+
+      const proc = Bun.spawn({
+        cmd: [
+          typstPath,
+          "compile",
+          "--input",
+          tempJsonPath,
+          templatePath,
+          outputPath,
+        ],
+        cwd: paths.projectRoot,
+      });
+
+      await proc.exited;
+
+      // Cleanup temp file
+      if (fs.existsSync(tempJsonPath)) {
+        fs.unlinkSync(tempJsonPath);
+      }
+
+      if (proc.success && fs.existsSync(outputPath)) {
+        return true;
+      }
+    }
+
+    // Method 2: Use typst.ts or just warn that typst needs to be installed
+    console.log(
+      `${colors.fgYellow}${icons.warning}${colors.reset} Typst not found or compilation failed`,
+    );
+    console.log(
+      `${colors.fgCyan}${icons.info}${colors.reset} To enable Typst export, install with: bun add @myriaddreamin/typst.ts`,
+    );
+    return false;
+  } catch (error) {
+    console.log(
+      `${colors.fgRed}${icons.cross}${colors.reset} Typst export failed: ${(error as Error).message}`,
+    );
+    return false;
+  }
+}
+
+/**
+ * Generate cover letter using Typst template
+ */
+export async function generateCoverLetter(name: string): Promise<boolean> {
+  const templatePath = path.join(
+    paths.projectRoot,
+    "src/templates/cover-letter.typ",
+  );
+  const coverLetterPath = path.join(paths.srcDir, "cover-letter.json");
+  const outputDir = getConfig().outputDir;
+  const outputPath = path.join(
+    paths.projectRoot,
+    outputDir,
+    `${name}-cover-letter.pdf`,
+  );
+
+  // Check if cover letter JSON exists
+  if (!fs.existsSync(coverLetterPath)) {
+    logError(
+      "cover-letter.json not found. Run './bin/resume-gen cover' to create one.",
+    );
+    return false;
+  }
+
+  // Check if template exists
+  if (!fs.existsSync(templatePath)) {
+    logError(`Cover letter template not found at ${templatePath}`);
+    return false;
+  }
+
+  // Read cover letter data
+  const letterData = fs.readFileSync(coverLetterPath, "utf-8");
+
+  // Try typst CLI
+  const typstPath = path.join(paths.projectRoot, "node_modules/.bin/typst");
+
+  try {
+    if (fs.existsSync(typstPath)) {
+      // Write data to temp file
+      const tempJsonPath = path.join(paths.projectRoot, "temp-cover-data.json");
+      fs.writeFileSync(tempJsonPath, letterData);
+
+      const proc = Bun.spawn({
+        cmd: [
+          typstPath,
+          "compile",
+          "--input",
+          tempJsonPath,
+          templatePath,
+          outputPath,
+        ],
+        cwd: paths.projectRoot,
+      });
+
+      await proc.exited;
+
+      // Cleanup temp file
+      if (fs.existsSync(tempJsonPath)) {
+        fs.unlinkSync(tempJsonPath);
+      }
+
+      if (proc.success && fs.existsSync(outputPath)) {
+        return true;
+      }
+    }
+
+    console.log(
+      `${colors.fgYellow}${icons.warning}${colors.reset} Typst not found. Cover letter generation requires typst CLI.`,
+    );
+    console.log(
+      `${colors.fgCyan}${icons.info}${colors.reset} Install: bun install typst`,
+    );
+    return false;
+  } catch (error) {
+    logError(`Cover letter generation failed: ${(error as Error).message}`);
+    return false;
+  }
 }
 
 // =============================================================================
@@ -296,7 +473,9 @@ export function printResults(
   console.log(
     `${colors.fgGreen}${icons.check}${colors.reset} Success: ${successCount}`,
   );
-  console.log(`${colors.fgRed}${icons.cross}${colors.reset} Failed: ${failCount}`);
+  console.log(
+    `${colors.fgRed}${icons.cross}${colors.reset} Failed: ${failCount}`,
+  );
   console.log();
 
   console.log(

@@ -46,6 +46,8 @@ import {
   ensureOutputDirs,
   generateThemes,
   printResults,
+  generateCoverLetter as generateCoverLetterExport,
+  exportTypstResume,
 } from "./export";
 
 // =============================================================================
@@ -306,6 +308,109 @@ async function cmdInstall(): Promise<void> {
 }
 
 // =============================================================================
+// COMMAND: COVER LETTER - Generate cover letter
+// =============================================================================
+
+async function cmdCoverLetter(): Promise<void> {
+  const config = types.getConfig();
+  const { validateCoverLetter, paths, logSuccess, logError, logInfo, icons } =
+    types;
+
+  console.log();
+  logInfo("Cover Letter Generator");
+
+  // Check if cover letter file exists
+  if (!fs.existsSync(paths.coverLetterJson)) {
+    logInfo(
+      "No src/cover-letter.json found. Creating template from resume basics...",
+    );
+
+    // Get resume basics for sender info
+    let basics = { name: "Your Name", email: "you@example.com", phone: "" };
+    if (fs.existsSync(paths.resumeJson)) {
+      try {
+        const resumeContent = fs.readFileSync(paths.resumeJson, "utf-8");
+        const resumeData = JSON.parse(resumeContent);
+        basics = { ...basics, ...(resumeData.basics || {}) };
+      } catch {
+        // Use defaults
+      }
+    }
+
+    const coverLetterData = {
+      recipient: {
+        name: "Hiring Manager",
+        title: "Recruiting Team",
+        company: "Company Name",
+        address: "123 Business Ave",
+      },
+      sender: {
+        name: basics.name,
+        email: basics.email,
+        phone: basics.phone,
+        address: "",
+        linkedin: "",
+        website: "",
+      },
+      opening:
+        "I am writing to express my strong interest in the position at your company. With my background in software development, I am excited about the opportunity to contribute to your team.",
+      body: [
+        "In my current role, I have successfully delivered multiple projects using modern technologies.",
+        "I am particularly drawn to your company's mission and would welcome the opportunity to bring my skills to your team.",
+      ],
+      closing:
+        "Thank you for your consideration. I look forward to the opportunity to discuss how my skills can contribute to your company's success.",
+      signature: "Sincerely,",
+    };
+
+    // Save cover letter JSON
+    fs.writeFileSync(
+      paths.coverLetterJson,
+      JSON.stringify(coverLetterData, null, 2),
+    );
+    logSuccess(`Created ${paths.coverLetterJson}`);
+    console.log(
+      `\n${icons.arrow} Edit the file to customize your cover letter, then run this command again.`,
+    );
+    return;
+  }
+
+  // Validate cover letter
+  const { valid, errors } = validateCoverLetter();
+  if (!valid && errors.length > 0) {
+    logError("Cover letter has issues:");
+    for (const error of errors) {
+      console.log(`  ${icons.cross} ${error}`);
+    }
+    return;
+  }
+
+  logSuccess("Cover letter is valid!");
+
+  // Generate cover letter using Typst
+  const spin = spinner();
+  spin.start("Generating cover letter...");
+
+  const success = await generateCoverLetterExport(config.name);
+
+  spin.stop();
+
+  if (success) {
+    logSuccess("Cover letter generated!");
+    console.log(
+      `\n${icons.file} Output: ${path.join(
+        config.outputDir,
+        `${config.name}-cover-letter.pdf`,
+      )}`,
+    );
+  } else {
+    logError(
+      "Failed to generate cover letter. Make sure typst is installed:\n  bun add typst",
+    );
+  }
+}
+
+// =============================================================================
 // COMMAND: PRERUN - Add themes to package.json
 // =============================================================================
 
@@ -380,7 +485,10 @@ async function cmdPrerun(): Promise<void> {
 // COMMAND: GENERATE - Main generation with auto-install
 // =============================================================================
 
-async function cmdGenerate(force: boolean = false): Promise<void> {
+async function cmdGenerate(
+  force: boolean = false,
+  formats: string[] = ["html", "pdf"],
+): Promise<void> {
   // Validate resume first
   const { valid, errors } = types.validateResume();
 
@@ -465,6 +573,7 @@ function showHelp(): void {
     pdf,
     lightning,
     eye,
+    file,
   } = types.icons;
 
   console.log(`
@@ -483,6 +592,7 @@ ${fgCyan}${bright}COMMANDS:${reset}
   ${fgWhite}validate${reset}   Validate resume.json file
   ${fgWhite}switch${reset}     Interactive theme switcher for preview
   ${fgWhite}install${reset}    Install missing curated themes
+  ${fgWhite}cover${reset}      Generate cover letter (interactive or from JSON)
   ${fgWhite}prerun${reset}     Add curated themes to package.json
   ${fgWhite}clean${reset}      Clean generated files
   ${fgWhite}help${reset}       Show this help message
@@ -492,12 +602,14 @@ ${fgCyan}${bright}OPTIONS:${reset}
   ${fgWhite}--verbose${reset}  Show detailed output
 
 ${fgCyan}${bright}CONFIGURATION (.env):${reset}
-  NAME           Output file prefix (default: keith)
-  OUTPUT_DIR     Output directory (default: resumes)
-  PARALLEL       Parallel theme processing (default: 4)
-  EXPORT_HTML    Export HTML files (true/false)
-  EXPORT_PDF     Export PDF files (true/false)
-  USE_CACHE      Use hash caching (true/false)
+  NAME                Output file prefix (default: keith)
+  OUTPUT_DIR          Output directory (default: resumes)
+  PARALLEL            Parallel theme processing (default: 4)
+  EXPORT_HTML         Export HTML files (true/false)
+  EXPORT_PDF          Export PDF files (true/false)
+  EXPORT_TYPST        Export Typst PDF (true/false)
+  INCLUDE_COVER_LETTER Include cover letter in generate (true/false)
+  USE_CACHE           Use hash caching (true/false)
 
 ${fgCyan}${bright}EXAMPLES:${reset}
   ${fgWhite}./bin/resume-gen generate${reset}
@@ -505,6 +617,7 @@ ${fgCyan}${bright}EXAMPLES:${reset}
   ${fgWhite}./bin/resume-gen list${reset}
   ${fgWhite}./bin/resume-gen validate${reset}
   ${fgWhite}./bin/resume-gen switch${reset}
+  ${fgWhite}./bin/resume-gen cover${reset}
   ${fgWhite}./bin/resume-gen clean --force${reset}
 
 ${fgCyan}${bright}FEATURES:${reset}
@@ -512,6 +625,8 @@ ${fgCyan}${bright}FEATURES:${reset}
   ${bullet} Parallel worker thread processing
   ${bullet} npm registry theme discovery
   ${bullet} Auto-installs missing themes on generate
+  ${bullet} Typst PDF support for clean documents
+  ${bullet} Cover letter generation (interactive or JSON)
   ${bullet} Smart caching (regenerate only on changes)
   ${bullet} Bun-native performance
 `);
@@ -577,6 +692,10 @@ async function main(): Promise<void> {
       break;
     case "install":
       await cmdInstall();
+      break;
+    case "cover":
+    case "cover-letter":
+      await cmdCoverLetter();
       break;
     case "prerun":
       await cmdPrerun();

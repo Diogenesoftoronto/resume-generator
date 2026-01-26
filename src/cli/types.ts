@@ -6,15 +6,352 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Get directory paths
+// Get directory paths - handle both bun run and compiled binary
 const __filename = fileURLToPath(import.meta.url);
 const __scriptDir = path.dirname(__filename);
-const PROJECT_ROOT = path.resolve(__scriptDir, "../..");
+const argv1 = process.argv[1] || "";
+
+// Detect running mode
+const isBunBinary =
+  argv1.includes("bunfs") ||
+  argv1.includes(".bun") ||
+  !__filename.includes("resume-generator");
+
+// For bun run: resolve from script location
+// For compiled binary: use cwd
+let PROJECT_ROOT: string;
+if (isBunBinary) {
+  PROJECT_ROOT = process.cwd();
+  // If cwd doesn't look like project root, try to find it
+  if (!fs.existsSync(path.join(PROJECT_ROOT, "package.json"))) {
+    // Try common locations
+    const possibleRoots = [
+      "/home/diogenes/Programs/resume-generator",
+      path.dirname(process.cwd()),
+    ];
+    for (const root of possibleRoots) {
+      if (fs.existsSync(path.join(root, "package.json"))) {
+        PROJECT_ROOT = root;
+        break;
+      }
+    }
+  }
+} else {
+  PROJECT_ROOT = path.resolve(__scriptDir, "../..");
+}
+
 const SRC_DIR = path.join(PROJECT_ROOT, "src");
 const NODE_MODULES = path.join(PROJECT_ROOT, "node_modules");
 const PACKAGE_JSON_PATH = path.join(PROJECT_ROOT, "package.json");
 const RESUME_JSON_PATH = path.join(SRC_DIR, "resume.json");
 const CACHE_FILE = path.join(SRC_DIR, ".resume_hash_cache");
+const COVER_LETTER_JSON_PATH = path.join(SRC_DIR, "cover-letter.json");
+
+// =============================================================================
+// COVER LETTER TYPES
+// =============================================================================
+
+export interface CoverLetterData {
+  recipient: {
+    name: string;
+    title: string;
+    company: string;
+    address?: string;
+  };
+  sender: {
+    name: string;
+    email: string;
+    phone?: string;
+    address?: string;
+    linkedin?: string;
+    website?: string;
+  };
+  opening: string;
+  body: string[];
+  closing: string;
+  signature: string;
+}
+
+export interface CoverLetterValidationResult {
+  valid: boolean;
+  errors: string[];
+}
+
+// =============================================================================
+// OUTPUT FORMAT TYPES
+// =============================================================================
+
+export type OutputFormat = "html" | "pdf" | "typst" | "all";
+
+export interface FormatOption {
+  id: OutputFormat;
+  name: string;
+  extension: string;
+  description: string;
+}
+
+export const SUPPORTED_FORMATS: FormatOption[] = [
+  {
+    id: "html",
+    name: "HTML",
+    extension: "html",
+    description: "Web-based resume",
+  },
+  { id: "pdf", name: "PDF", extension: "pdf", description: "Print-ready PDF" },
+  {
+    id: "typst",
+    name: "Typst",
+    extension: "typ",
+    description: "Modern typesetting",
+  },
+  {
+    id: "all",
+    name: "All Formats",
+    extension: "*",
+    description: "Generate all formats",
+  },
+];
+
+// =============================================================================
+// GENERATE OPTIONS
+// =============================================================================
+
+export interface GenerateOptions {
+  themes?: string[];
+  formats?: OutputFormat[];
+  outputDir?: string;
+  name?: string;
+  resumeFile?: string;
+  coverLetter?: boolean;
+  useCache?: boolean;
+  parallel?: number;
+  verbose?: boolean;
+}
+
+// =============================================================================
+// THEME WITH FORMAT SUPPORT
+// =============================================================================
+
+export interface ThemeExportInfo {
+  name: string;
+  description: string;
+  formats: OutputFormat[];
+}
+
+export const THEMES_WITH_FORMATS: ThemeExportInfo[] = [
+  {
+    name: "actual",
+    description: "Clean, modern design",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "apage",
+    description: "Minimalist page layout",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "autumn",
+    description: "Autumn colors theme",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "caffeine",
+    description: "Coffee-inspired design",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "class",
+    description: "Classic professional look",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "classy",
+    description: "Elegant and sophisticated",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "cora",
+    description: "Cora's creative theme",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "dave",
+    description: "Dave's personal design",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "elegant",
+    description: "Sophisticated and clean",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "eloquent",
+    description: "Well-spaced, readable",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "even",
+    description: "Evenly balanced layout",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "flat",
+    description: "Flat design aesthetic",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "flat-fr",
+    description: "Flat design in French",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "full",
+    description: "Full feature resume",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "github",
+    description: "GitHub profile style",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "jacrys",
+    description: "Creative portfolio theme",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "kards",
+    description: "Cards-based layout",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "keloran",
+    description: "Keloran's custom theme",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "kendall",
+    description: "Kendall's professional theme",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "macchiato",
+    description: "Coffee colors palette",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "mantra",
+    description: "Mantra's unique style",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "mocha-responsive",
+    description: "Responsive mocha theme",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "modern",
+    description: "Contemporary design",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "msresume",
+    description: "Microsoft-style resume",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "onepage",
+    description: "Single page layout",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "onepageresume",
+    description: "Compact one-pager",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "orbit",
+    description: "Orbital design elements",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "paper",
+    description: "Paper document style",
+    formats: ["html", "pdf", "typst"],
+  },
+  {
+    name: "paper-plus-plus",
+    description: "Enhanced paper theme",
+    formats: ["html", "pdf", "typst"],
+  },
+  {
+    name: "papirus",
+    description: "Papirus design system",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "pumpkin",
+    description: "Orange pumpkin theme",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "rocketspacer",
+    description: "Rocket science inspired",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "short",
+    description: "Concise format",
+    formats: ["html", "pdf", "typst"],
+  },
+  {
+    name: "simple-red",
+    description: "Simple with red accents",
+    formats: ["html", "pdf"],
+  },
+  { name: "slick", description: "Slick modern look", formats: ["html", "pdf"] },
+  {
+    name: "spartan",
+    description: "Spartan minimal theme",
+    formats: ["html", "pdf", "typst"],
+  },
+  { name: "srt", description: "SRT custom theme", formats: ["html", "pdf"] },
+  {
+    name: "stackoverflow",
+    description: "Stack Overflow style",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "standard-resume",
+    description: "Standard format",
+    formats: ["html", "pdf", "typst"],
+  },
+  {
+    name: "tachyons-clean",
+    description: "Tachyons CSS clean theme",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "tan-responsive",
+    description: "Tan colored responsive",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "techlead",
+    description: "Tech lead style",
+    formats: ["html", "pdf"],
+  },
+  {
+    name: "verbum",
+    description: "Word-focused design",
+    formats: ["html", "pdf", "typst"],
+  },
+  {
+    name: "wraypro",
+    description: "WrayPro professional",
+    formats: ["html", "pdf"],
+  },
+];
 
 // =============================================================================
 // PATH EXPORTS
@@ -27,6 +364,7 @@ export const paths = {
   packageJson: PACKAGE_JSON_PATH,
   resumeJson: RESUME_JSON_PATH,
   cacheFile: CACHE_FILE,
+  coverLetterJson: COVER_LETTER_JSON_PATH,
 };
 
 // =============================================================================
@@ -101,7 +439,8 @@ export interface Theme {
   description: string;
 }
 
-export const CURATED_THEMES: Theme[] = [
+// Legacy theme list (for backward compatibility)
+export const LEGACY_THEMES: Theme[] = [
   { name: "actual", description: "Clean, modern design" },
   { name: "apage", description: "Minimalist page layout" },
   { name: "autumn", description: "Autumn colors theme" },
@@ -148,6 +487,9 @@ export const CURATED_THEMES: Theme[] = [
   { name: "wraypro", description: "WrayPro professional" },
 ];
 
+// Use THEMES_WITH_FORMATS for new code
+export const CURATED_THEMES = LEGACY_THEMES;
+
 // Themes to skip (known issues)
 export const SKIP_THEMES = ["kwan", "kwan-linkedin", "latex", "elite"];
 
@@ -158,9 +500,12 @@ export const SKIP_THEMES = ["kwan", "kwan-linkedin", "latex", "elite"];
 export interface Config {
   name: string;
   resumeFile: string;
+  coverLetterFile: string;
   outputDir: string;
   exportHtml: boolean;
   exportPdf: boolean;
+  exportTypst: boolean;
+  includeCoverLetter: boolean;
   useCache: boolean;
   parallel: number;
   verbose: boolean;
@@ -190,9 +535,15 @@ export function getConfig(): Config {
     name: env["NAME"] || process.env["NAME"] || "keith",
     resumeFile:
       env["RESUME_FILE"] || process.env["RESUME_FILE"] || RESUME_JSON_PATH,
+    coverLetterFile:
+      env["COVER_LETTER_FILE"] ||
+      process.env["COVER_LETTER_FILE"] ||
+      COVER_LETTER_JSON_PATH,
     outputDir: env["OUTPUT_DIR"] || process.env["OUTPUT_DIR"] || "resumes",
     exportHtml: (env["EXPORT_HTML"] || "true") === "true",
     exportPdf: (env["EXPORT_PDF"] || "true") === "true",
+    exportTypst: (env["EXPORT_TYPST"] || "false") === "true",
+    includeCoverLetter: (env["INCLUDE_COVER_LETTER"] || "false") === "true",
     useCache: (env["USE_CACHE"] || "true") === "true",
     parallel: parseInt(env["PARALLEL"] || process.env["PARALLEL"] || "4", 10),
     verbose: (env["VERBOSE"] || "false") === "true",
@@ -229,6 +580,49 @@ export function validateResume(): ValidationResult {
       if (!data.basics.email) {
         errors.push("Missing 'basics.email'");
       }
+    }
+  } catch (e) {
+    errors.push(`Invalid JSON: ${(e as Error).message}`);
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+export function validateCoverLetter(): CoverLetterValidationResult {
+  const errors: string[] = [];
+
+  if (!fs.existsSync(COVER_LETTER_JSON_PATH)) {
+    return { valid: true, errors: [] }; // Optional file
+  }
+
+  try {
+    const content = fs.readFileSync(COVER_LETTER_JSON_PATH, "utf-8");
+    const data: CoverLetterData = JSON.parse(content);
+
+    if (!data.recipient) {
+      errors.push("Missing 'recipient' section");
+    } else {
+      if (!data.recipient.name) {
+        errors.push("Missing 'recipient.name'");
+      }
+      if (!data.recipient.company) {
+        errors.push("Missing 'recipient.company'");
+      }
+    }
+
+    if (!data.sender) {
+      errors.push("Missing 'sender' section");
+    } else {
+      if (!data.sender.name) {
+        errors.push("Missing 'sender.name'");
+      }
+      if (!data.sender.email) {
+        errors.push("Missing 'sender.email'");
+      }
+    }
+
+    if (!data.opening || data.opening.trim() === "") {
+      errors.push("Missing 'opening' paragraph");
     }
   } catch (e) {
     errors.push(`Invalid JSON: ${(e as Error).message}`);

@@ -1,0 +1,23 @@
+{
+  "recipient": {
+    "name": "Hiring Manager",
+    "title": "Recruiting Team",
+    "company": "TechCorp Inc.",
+    "address": "123 Business Avenue"
+  },
+  "sender": {
+    "name": "Keith",
+    "email": "keith@example.com",
+    "phone": "(555) 123-4567",
+    "address": "456 Developer Lane",
+    "linkedin": "https://linkedin.com/in/keith",
+    "website": "https://keith.dev"
+  },
+  "opening": "I am writing to express my strong interest in the Software Engineer position at TechCorp Inc. With my background in full-stack development and a passion for building scalable applications, I am excited about the opportunity to contribute to your innovative team.",
+  "body": [
+    "In my current role, I have led the development of multiple web applications using React, Node.js, and TypeScript. I have successfully delivered projects on time while maintaining high code quality standards.",
+    "I am particularly drawn to TechCorp's mission and would welcome the opportunity to bring my technical skills and collaborative spirit to your team."
+  ],
+  "closing": "Thank you for considering my application. I look forward to the opportunity to discuss how my skills and experience can contribute to TechCorp's continued success.",
+  "signature": "Sincerely,"
+}
